@@ -1,0 +1,3 @@
+[submodule "bfscripts"]
+	path = bfscripts
+	url = https://github.com/Mellanox/bfscripts.git
