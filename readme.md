@@ -1,6 +1,6 @@
 # Generic RHCOS BFB Image Generation
 
-This simple project generate a Red Hat CoreOS image for NVIDIA BlueField devices.
+This simple project generates a Red Hat CoreOS image for NVIDIA BlueField devices.
 
 ### Prepare
 
