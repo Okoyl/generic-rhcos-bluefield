@@ -1,3 +1,6 @@
 [submodule "bfscripts"]
 	path = bfscripts
 	url = https://github.com/Mellanox/bfscripts.git
+[submodule "custom-coreos-disk-images"]
+	path = custom-coreos-disk-images
+	url = https://github.com/coreos/custom-coreos-disk-images.git
