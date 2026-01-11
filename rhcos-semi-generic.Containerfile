@@ -4,7 +4,6 @@ ARG RHCOS_VERSION
 ARG D_CONTAINER_VER=0
 ARG D_DOCA_VERSION
 ARG D_OFED_VERSION
-ARG D_OFED_SRC_DOWNLOAD_PATH="/run/mellanox/src"
 ARG OFED_SRC_LOCAL_DIR=${D_OFED_SRC_DOWNLOAD_PATH}/MLNX_OFED_SRC-${D_OFED_VERSION}
 
 FROM ${BUILDER_IMAGE} AS builder
@@ -12,26 +11,19 @@ FROM ${BUILDER_IMAGE} AS builder
 ARG D_DOCA_VERSION
 ARG D_OFED_VERSION
 ARG D_CONTAINER_VER
-ARG D_OFED_SRC_DOWNLOAD_PATH
 ARG OFED_SRC_LOCAL_DIR
 
 
 ARG DOCA_SOURCES_URL="https://linux.mellanox.com/public/repo/doca/${D_DOCA_VERSION}/SOURCES"
+
+WORKDIR /root
 
 RUN KVER=$(ls /usr/lib/modules | head -n1) && \
   echo "KVER=$KVER" >> /kernelver.env  
 
 ARG D_OFED_SRC_ARCHIVE="MLNX_OFED_SRC-${D_OFED_SRC_TYPE}${D_OFED_VERSION}.tgz"
 
-ENV NVIDIA_NIC_DRIVER_VER=${D_OFED_VERSION}
-ENV NVIDIA_NIC_CONTAINER_VER=${D_CONTAINER_VER}
-
-
 RUN dnf install -y automake autoconf libtool perl
-
-RUN mkdir -p "$D_OFED_SRC_DOWNLOAD_PATH"
-
-WORKDIR ${D_OFED_SRC_DOWNLOAD_PATH}
 
 RUN wget --no-check-certificate -O ${D_OFED_SRC_ARCHIVE} ${DOCA_SOURCES_URL}/mlnx_ofed/${D_OFED_SRC_ARCHIVE}; \
   if [ $? -ne 0 ]; then \
@@ -46,7 +38,7 @@ RUN if file ${D_OFED_SRC_ARCHIVE} | grep compressed; then \
 
 RUN set -x && \
   source /kernelver.env && \
-  perl ${OFED_SRC_LOCAL_DIR}/install.pl --without-depcheck --distro rhel --kernel ${KVER} --kernel-sources /lib/modules/${KVER}/build \
+  perl /root/MLNX_OFED_SRC-${D_OFED_VERSION}/install.pl --without-depcheck --distro rhel --kernel ${KVER} --kernel-sources /lib/modules/${KVER}/build \
   --kernel-only --build-only \
   --with-iser --with-srp --with-isert --with-knem --with-xpmem --fwctl \
   --with-mlnx-tools --with-ofed-scripts --copy-ifnames-udev
@@ -79,8 +71,17 @@ RUN source /kernelver.env && \
   tar -czf "${SRCDIR}.tar.gz" $SRCDIR && \
   rpmbuild -ba $SRCDIR/*.spec --define 'KMP 1' --define 'compat_cflags -DRHEL_DRM_VERSION=6 -DRHEL_DRM_PATCHLEVEL=12' --define "KVERSION $KVER" --define "_sourcedir $(pwd)" --define "debug_package %{nil}"
 
+RUN ls /root/MLNX_OFED_SRC-${D_OFED_VERSION}/RPMS/redhat-release-*/aarch64
 
-RUN cd /build/rpmbuild/RPMS/aarch64 &&dnf download mstflint
+RUN cd /root/MLNX_OFED_SRC-${D_OFED_VERSION}/RPMS/redhat-release-*/aarch64 && \
+  rm -f *-devel*.rpm *-debugsource*.rpm *-debuginfo*.rpm *-source*.rpm && \
+  rm -f xpmem-*.rpm knem-*.rpm && \
+  mkdir /root/rpms && \
+  mv *.rpm /root/rpms && \
+  mv /build/rpmbuild/RPMS/aarch64/*.rpm /root/rpms && \
+  cd /root/rpms && \
+  dnf download mstflint && \
+  dnf clean all
 ######################################################################
 
 FROM ${TARGET_IMAGE} AS base
@@ -91,8 +92,7 @@ ARG OFED_SRC_LOCAL_DIR
 
 RUN mkdir /tmp/rpms
 
-COPY --from=builder ${OFED_SRC_LOCAL_DIR}/RPMS/redhat-release-*/aarch64/*.rpm /tmp/rpms
-COPY --from=builder /build/rpmbuild/RPMS/aarch64/*.rpm /tmp/rpms
+COPY --from=builder /root/rpms/*.rpm /tmp/rpms
 
 WORKDIR /
 
