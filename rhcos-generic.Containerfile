@@ -1,0 +1,12 @@
+ARG TARGET_IMAGE
+
+FROM ${TARGET_IMAGE} AS base
+
+COPY ignition/bin/ignition /usr/lib/dracut/modules.d/30ignition/ignition
+
+RUN \
+  set -xe; kver=$(ls /usr/lib/modules); env DRACUT_NO_XATTR=1 dracut -vf /usr/lib/modules/$kver/initramfs.img "$kver"; \
+  rm -rf /var/cache/* /var/log/* /etc/machine-id && \
+  update-pciids && \
+  ostree container commit
+
