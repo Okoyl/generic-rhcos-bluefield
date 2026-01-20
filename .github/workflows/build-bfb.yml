@@ -1,0 +1,165 @@
+name: Build RHCOS BlueField BFB
+
+on:
+  push:
+    branches: [master, ignition]
+  workflow_dispatch:
+    inputs:
+      rhcos_version:
+        description: 'RHCOS/OCP Version (e.g., 4.20.9)'
+        required: true
+        default: '4.20.9'
+
+env:
+  RHCOS_VERSION: ${{ github.event.inputs.rhcos_version || '4.20.9' }}
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/rhcos-bluefield-bfb
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm  # ARM64 runner for native aarch64 build
+    container:
+      image: fedora:40
+      options: --privileged --device /dev/fuse --security-opt seccomp=unconfined
+      volumes:
+        - /dev:/dev
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Install base tools
+        run: |
+          dnf install -y \
+            git \
+            curl \
+            jq \
+            make \
+            gcc \
+            podman \
+            skopeo \
+            osbuild \
+            osbuild-ostree \
+            osbuild-tools \
+            cpio \
+            util-linux \
+            libblkid-devel \
+            xfsprogs \
+            squashfs-tools \
+            dosfstools \
+            genisoimage
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set version from tag or commit
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="${{ github.sha }}"
+            VERSION="${VERSION:0:7}"  # Short SHA
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "Building version: ${VERSION}"
+
+      - name: Install Go, ORAS, and oc CLI
+        run: |
+          # Install Go 1.24
+          curl -sLO https://go.dev/dl/go1.24.0.linux-arm64.tar.gz
+          tar -C /usr/local -xzf go1.24.0.linux-arm64.tar.gz
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
+          export PATH="/usr/local/go/bin:$PATH"
+          go version
+          
+          # Install ORAS
+          curl -sLO https://github.com/oras-project/oras/releases/download/v1.2.0/oras_1.2.0_linux_arm64.tar.gz
+          tar -xzf oras_1.2.0_linux_arm64.tar.gz
+          mv oras /usr/local/bin/
+          
+          # Install oc CLI
+          curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux-arm64.tar.gz | tar xzf - oc
+          mv oc /usr/local/bin/
+
+      - name: Build Ignition binary
+        working-directory: ignition
+        env:
+          GOFLAGS: -buildvcs=false
+        run: |
+          git config --global --add safe.directory '*'
+          make
+          ls -la bin/arm64/
+
+      - name: Get target image reference
+        run: |
+          version=$(oc adm release info -o json \
+            "quay.io/openshift-release-dev/ocp-release:${RHCOS_VERSION}-aarch64" \
+            | jq -r '.displayVersions["machine-os"].Version')
+          
+          echo "TARGET_IMAGE=quay.io/openshift-release-dev/ocp-v4.0-art-dev:${version}-coreos" >> $GITHUB_ENV
+          echo "Machine OS Version: ${version}"
+
+      - name: Log in to Red Hat registry
+        env:
+          PULL_SECRET: ${{ secrets.PULL_SECRET }}
+        run: |
+          printenv PULL_SECRET > /tmp/pull-secret.json
+          podman login --authfile /tmp/pull-secret.json quay.io
+
+      - name: Log in to GitHub Container Registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printenv GITHUB_TOKEN | oras login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Build RHCOS generic container image
+        run: |
+          podman build -f rhcos-generic.Containerfile \
+            --authfile /tmp/pull-secret.json \
+            --build-arg TARGET_IMAGE=${{ env.TARGET_IMAGE }} \
+            --tag "rhcos-generic:${RHCOS_VERSION}-latest"
+
+      - name: Export container to OCI archive
+        run: |
+          podman save --format oci-archive \
+            -o rhcos-generic_${RHCOS_VERSION}.ociarchive \
+            localhost/rhcos-generic:${RHCOS_VERSION}-latest
+
+      - name: Generate live image artifacts
+        run: |
+          # Create a fake getenforce that returns "Permissive" (SELinux is disabled in container)
+          echo -e '#!/bin/sh\necho Permissive' > /usr/local/bin/getenforce
+          chmod +x /usr/local/bin/getenforce
+          
+          ./custom-coreos-disk-images/custom-coreos-disk-images.sh \
+            --ociarchive rhcos-generic_${RHCOS_VERSION}.ociarchive \
+            --platforms live \
+            --metal-image-size 5000
+
+      - name: Build BFB image
+        run: |
+          ls -la rhcos-generic_*.aarch64*
+          ./make_bfb.sh \
+            --kernel rhcos-generic_${RHCOS_VERSION}-live-kernel.aarch64 \
+            --initramfs rhcos-generic_${RHCOS_VERSION}-live-initramfs.aarch64.img \
+            --rootfs rhcos-generic_${RHCOS_VERSION}-live-rootfs.aarch64.img \
+            --outfile output/rhcos-bluefield-${RHCOS_VERSION}-${VERSION}.bfb
+          ls -la output/
+
+      - name: Push BFB to GHCR with ORAS
+        run: |
+          cd output
+          BFB_FILE=$(ls *.bfb)
+          
+          # Push with version tag
+          oras push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION} \
+            --artifact-type application/vnd.nvidia.bluefield.bfb \
+            ${BFB_FILE}:application/vnd.nvidia.bluefield.bfb
+                    
+          echo "Pushed to: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
+
+      - name: Cleanup secrets
+        if: always()
+        run: rm -f /tmp/pull-secret.json
