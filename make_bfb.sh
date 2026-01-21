@@ -51,7 +51,7 @@ buildbfb() {
     boot_desc=$(mktemp)
 
     printf "console=ttyAMA0 earlycon=pl011,0x01000000 earlycon=pl011,0x01800000 initrd=initramfs" > "$boot_args"
-    printf "console=hvc0 console=ttyAMA0 earlycon=pl011,0x13010000 initrd=initramfs ignition.firstboot ignition.platform.id=nvidiabluefield $KERNEL_DBG_ARGS" > "$boot_args2"
+    printf "console=hvc0 console=ttyAMA0 earlycon=pl011,0x13010000 initrd=initramfs modprobe.blacklist=mlxbf_pmc ignition.firstboot ignition.platform.id=nvidiabluefield $KERNEL_DBG_ARGS" > "$boot_args2"
 
 
     printf "VenHw(F019E406-8C9C-11E5-8797-001ACA00BFC4)/Image" > "$boot_path"
