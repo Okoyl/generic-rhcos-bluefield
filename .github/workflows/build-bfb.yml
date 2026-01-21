@@ -8,10 +8,10 @@ on:
       rhcos_version:
         description: 'RHCOS/OCP Version (e.g., 4.20.9)'
         required: true
-        default: '4.20.9'
+        default: '4.20.10'
 
 env:
-  RHCOS_VERSION: ${{ github.event.inputs.rhcos_version || '4.20.9' }}
+  RHCOS_VERSION: ${{ github.event.inputs.rhcos_version || '4.20.10' }}
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/rhcos-bluefield-bfb
 
@@ -47,7 +47,8 @@ jobs:
             xfsprogs \
             squashfs-tools \
             dosfstools \
-            genisoimage
+            genisoimage \
+            dracut
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -91,6 +92,16 @@ jobs:
           git config --global --add safe.directory '*'
           make
           ls -la bin/arm64/
+          
+          # Verify our binary has nvidiabluefield platform
+          echo "=== Verifying ignition binary has nvidiabluefield ==="
+          ./bin/arm64/ignition --help 2>&1 | grep -i platform || true
+          if ./bin/arm64/ignition --help 2>&1 | grep -q nvidiabluefield; then
+            echo "✓ nvidiabluefield platform found in binary"
+          else
+            echo "✗ ERROR: nvidiabluefield NOT found in binary!"
+            exit 1
+          fi
 
       - name: Get target image reference
         run: |
@@ -117,15 +128,47 @@ jobs:
       - name: Build RHCOS generic container image
         run: |
           podman build -f rhcos-generic.Containerfile \
+            --no-cache \
             --authfile /tmp/pull-secret.json \
             --build-arg TARGET_IMAGE=${{ env.TARGET_IMAGE }} \
             --tag "rhcos-generic:${RHCOS_VERSION}-latest"
 
+      - name: Extract container initramfs for comparison
+        run: |
+          echo "=== Extracting initramfs from container ==="
+          cid=$(podman create localhost/rhcos-generic:${RHCOS_VERSION}-latest /bin/true)
+          mkdir -p modules-extract
+          podman cp $cid:/usr/lib/modules/. modules-extract/
+          initramfs=$(find modules-extract -name 'initramfs.img' | head -1)
+          cp "$initramfs" container-initramfs.img
+          ls -la container-initramfs.img
+          podman rm $cid
+          rm -rf modules-extract
+
+      - name: Upload container initramfs for debugging
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-initramfs-debug
+          path: container-initramfs.img
+          retention-days: 7
+
+      - name: Save container image for debugging
+        run: |
+          podman save -o rhcos-generic-container.tar localhost/rhcos-generic:${RHCOS_VERSION}-latest
+
+      - name: Upload container image for debugging
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-image-debug
+          path: rhcos-generic-container.tar
+          retention-days: 7
+
       - name: Export container to OCI archive
         run: |
-          podman save --format oci-archive \
-            -o rhcos-generic_${RHCOS_VERSION}.ociarchive \
-            localhost/rhcos-generic:${RHCOS_VERSION}-latest
+          # Use skopeo copy (same as README) instead of podman save
+          skopeo copy \
+            containers-storage:localhost/rhcos-generic:${RHCOS_VERSION}-latest \
+            oci-archive:rhcos-generic_${RHCOS_VERSION}.ociarchive
 
       - name: Generate live image artifacts
         run: |
@@ -137,6 +180,14 @@ jobs:
             --ociarchive rhcos-generic_${RHCOS_VERSION}.ociarchive \
             --platforms live \
             --metal-image-size 5000
+
+      - name: Upload live-initramfs for debugging
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-initramfs-debug
+          path: |
+            rhcos-generic_${{ env.RHCOS_VERSION }}-live-initramfs.aarch64.img
+          retention-days: 7
 
       - name: Build BFB image
         run: |
