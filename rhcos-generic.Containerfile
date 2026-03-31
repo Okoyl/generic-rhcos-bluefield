@@ -5,6 +5,8 @@ FROM ${TARGET_IMAGE} AS base
 COPY ignition/bin/arm64/ignition /usr/lib/dracut/modules.d/30ignition/ignition
 COPY ignition/dracut/30ignition/module-setup.sh /usr/lib/dracut/modules.d/30ignition/module-setup.sh
 
+RUN dnf install -y https://rpmfind.net/linux/centos-stream/9-stream/AppStream/aarch64/os/Packages/mstflint-4.32.0-1.el9.aarch64.rpm && dnf clean all
+
 RUN \
   mkdir /var/tmp; \
   set -xe; kver=$(ls /usr/lib/modules); env DRACUT_NO_XATTR=1 dracut -vf /usr/lib/modules/$kver/initramfs.img "$kver"; \
