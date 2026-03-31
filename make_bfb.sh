@@ -13,7 +13,7 @@ readonly WORKSPACE="${SCRIPT_DIR}/workspace"
 readonly BOOTIMAGES_DIR="${WORKSPACE}/bootimages"
 readonly BOOTIMAGES_URL="https://linux.mellanox.com/public/repo/doca/3.1.0/rhel9.6/arm64-dpu/mlxbf-bootimages-signed-4.12.0-13720.aarch64.rpm"
 
-readonly IMG_BASE_NAME="rhcos-generic"
+readonly IMG_BASE_NAME="rhcos"
 readonly DATETIME="$(date +'%F_%H-%M')"
 
 # Temp files for cleanup
@@ -123,7 +123,7 @@ build_bfb() {
 
     # BF2+ boot arguments
     local kernel_args="console=hvc0 console=ttyAMA0 earlycon=pl011,0x13010000"
-    kernel_args+=" initrd=initramfs modprobe.blacklist=mlxbf_pmc"
+    kernel_args+=" initrd=initramfs"
     kernel_args+=" ignition.firstboot ignition.platform.id=nvidiabluefield"
     kernel_args+=" ignore_loglevel"
     printf "%s" "${kernel_args}" > "${boot_args_v2}"
@@ -169,9 +169,9 @@ build_image_name() {
 
 main() {
     # Default paths
-    local coreos_kernel="${SCRIPT_DIR}/rhcos-generic_${RHCOS_VERSION:-}-live-kernel.aarch64"
-    local coreos_initramfs="${SCRIPT_DIR}/rhcos-generic_${RHCOS_VERSION:-}-live-initramfs.aarch64.img"
-    local coreos_rootfs="${SCRIPT_DIR}/rhcos-generic_${RHCOS_VERSION:-}-live-rootfs.aarch64.img"
+    local coreos_kernel="${SCRIPT_DIR}/rhcos_${RHCOS_VERSION:-}-live-kernel.aarch64"
+    local coreos_initramfs="${SCRIPT_DIR}/rhcos_${RHCOS_VERSION:-}-live-initramfs.aarch64.img"
+    local coreos_rootfs="${SCRIPT_DIR}/rhcos_${RHCOS_VERSION:-}-live-rootfs.aarch64.img"
     local default_bfb="" capsule="" infojson=""
     local output_bfb=""
 

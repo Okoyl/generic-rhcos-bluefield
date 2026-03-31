@@ -4,6 +4,3 @@
 [submodule "custom-coreos-disk-images"]
 	path = custom-coreos-disk-images
 	url = https://github.com/coreos/custom-coreos-disk-images.git
-[submodule "ignition"]
-	path = ignition
-	url = https://github.com/coreos/ignition

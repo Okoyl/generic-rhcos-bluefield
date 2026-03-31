@@ -2,10 +2,23 @@ ARG TARGET_IMAGE
 
 FROM ${TARGET_IMAGE} AS base
 
-COPY ignition/bin/arm64/ignition /usr/lib/dracut/modules.d/30ignition/ignition
-COPY ignition/dracut/30ignition/module-setup.sh /usr/lib/dracut/modules.d/30ignition/module-setup.sh
+RUN cat <<EOF > /etc/yum.repos.d/kernelfix_mlxbf-pmc.repo
+[10.2_kernel_fix_mlxbf-pmc]
+name=10.2 kernel fix for mlxbf-pmc
+baseurl=http://bfb.okoyl.xyz/misc/10.2_kernel_fix_mlxbf-pmc/rpm_repo/
+gpgcheck=0
+enabled=1
+EOF
 
-RUN dnf install -y https://rpmfind.net/linux/centos-stream/9-stream/AppStream/aarch64/os/Packages/mstflint-4.32.0-1.el9.aarch64.rpm && dnf clean all
+RUN dnf remove -y kernel kernel-core kernel-modules kernel-modules-core kernel-modules-extra && \
+  dnf install --disablerepo="*" --enablerepo="10.2_kernel_fix_mlxbf-pmc" -y \
+  kernel \
+  kernel-core \
+  kernel-modules \
+  kernel-modules-core \
+  kernel-modules-extra \
+  && \
+  dnf clean all
 
 RUN \
   mkdir /var/tmp; \

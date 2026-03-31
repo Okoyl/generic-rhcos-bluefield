@@ -5,7 +5,7 @@ This simple project generates a Red Hat CoreOS image for NVIDIA BlueField device
 ### Prepare
 Set envrioment variables
 ```sh
-export RHCOS_VERSION=4.20.9
+export RHCOS_VERSION=4.22.0-ec.4
 # OpenShift Pull Secret
 export PULL_SECRET="~/pull-secret.json"
 ```
@@ -14,12 +14,6 @@ Set Image target
 ```sh
 version=$(oc adm release info -o json "quay.io/openshift-release-dev/ocp-release:$RHCOS_VERSION-aarch64" | jq -r '.displayVersions["machine-os"].Version')
 export TARGET_IMAGE="quay.io/openshift-release-dev/ocp-v4.0-art-dev:${version}-coreos"
-```
-
-Build Ignition binary (Make sure you have the Go compiler installed and not gcc-go)
-```sh
-cd ignition
-make all
 ```
 
 ### Build Red Hat CoreOS Artifacts
